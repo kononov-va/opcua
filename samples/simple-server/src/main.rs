@@ -118,6 +118,7 @@ fn add_example_variables(server: &mut Server, ns: u16) {
             data.1 = !data.1;
             let mut address_space = address_space.write();
             let now = DateTime::now();
+            
             let _ = address_space.set_variable_value(v1_node.clone(), data.0, &now, &now);
             let _ = address_space.set_variable_value(v2_node.clone(), data.1, &now, &now);
         });
