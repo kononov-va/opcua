@@ -1,13 +1,12 @@
 use std::{error::Error, io::{self, Read, Write}, time::Duration};
 use crc16::*;
-use chrono::{Local};//DateTime, 
 use std::fmt;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+//use std::sync::Arc;
 
 use opcua::server::prelude::*;
-use opcua::sync::Mutex;
+//use opcua::sync::Mutex;
 
 struct DeviceAnswer{
     message_time: DateTime,//<Local>,
@@ -32,26 +31,29 @@ fn main() {
     };
 
     // Add some variables of our own
-    add_variables(&mut server, ns, String::from(port));
+    add_variables(&mut server, ns, String::from(port), 1);
+    add_variables(&mut server, ns, String::from(port), 2);
+    add_variables(&mut server, ns, String::from(port), 3);
 
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run();
 }
 
-fn add_variables(server: &mut Server, ns: u16, port: String) {
+fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
 
-    let v1_node = NodeId::new(ns, "v1");
-    let v2_node = NodeId::new(ns, "v2");
-    let v3_node = NodeId::new(ns, "v3");
-    let v4_node = NodeId::new(ns, "v4");
-    let v5_node = NodeId::new(ns, "v5");
-    let v6_node = NodeId::new(ns, "v6");
-    let v7_node = NodeId::new(ns, "v7");
-    let v8_node = NodeId::new(ns, "v8");
-    let v9_node = NodeId::new(ns, "v9");
-    let v10_node = NodeId::new(ns, "v10");
-    let v11_node = NodeId::new(ns, "v11");
-    let v12_node = NodeId::new(ns, "v12");
+    let v1_node = NodeId::new(ns, format!("{}v1", address));
+    let v2_node = NodeId::new(ns, format!("{}v2", address));
+    let v3_node = NodeId::new(ns, format!("{}v3", address));
+    let v4_node = NodeId::new(ns, format!("{}v4", address));
+    let v5_node = NodeId::new(ns, format!("{}v5", address));
+    let v6_node = NodeId::new(ns, format!("{}v6", address));
+    let v7_node = NodeId::new(ns, format!("{}v7", address));
+    let v8_node = NodeId::new(ns, format!("{}v8", address));
+    let v9_node = NodeId::new(ns, format!("{}v9", address));
+    let v10_node = NodeId::new(ns, format!("{}v10", address));
+    let v11_node = NodeId::new(ns, format!("{}v11", address));
+    let v12_node = NodeId::new(ns, format!("{}v12", address));
+
     let address_space = server.address_space();
 
     {
@@ -59,24 +61,24 @@ fn add_variables(server: &mut Server, ns: u16, port: String) {
 
         // Create a sample folder under objects folder
         let sample_folder_id = address_space
-            .add_folder("1", "1", &NodeId::objects_folder_id())
+            .add_folder(address.to_string(), address.to_string(), &NodeId::objects_folder_id())
             .unwrap();
 
         // Add some variables to our sample folder. Values will be overwritten by the timer
         let _ = address_space.add_variables(
             vec![
-                Variable::new(&v1_node, "v1", "v1", 0f64),
-                Variable::new(&v2_node, "v2", "v2", 0f64),
-                Variable::new(&v3_node, "v3", "v3", 0f64),
-                Variable::new(&v4_node, "v4", "v4", 0f64),
-                Variable::new(&v5_node, "v5", "v5", 0f64),
-                Variable::new(&v6_node, "v6", "v6", 0f64),
-                Variable::new(&v7_node, "v7", "v7", 0f64),
-                Variable::new(&v8_node, "v8", "v8", 0f64),
-                Variable::new(&v9_node, "v9", "v9", 0f64),
-                Variable::new(&v10_node, "v10", "v10", 0f64),
-                Variable::new(&v11_node, "v11", "v11", 0f64),
-                Variable::new(&v12_node, "v12", "v12", 0f64),
+                Variable::new(&v1_node, format!("{}v1", address), format!("{}v1", address), 0f64),
+                Variable::new(&v2_node, format!("{}v2", address), format!("{}v2", address), 0f64),
+                Variable::new(&v3_node, format!("{}v3", address), format!("{}v3", address), 0f64),
+                Variable::new(&v4_node, format!("{}v4", address), format!("{}v4", address), 0f64),
+                Variable::new(&v5_node, format!("{}v5", address), format!("{}v5", address), 0f64),
+                Variable::new(&v6_node, format!("{}v6", address), format!("{}v6", address), 0f64),
+                Variable::new(&v7_node, format!("{}v8", address), format!("{}v7", address), 0f64),
+                Variable::new(&v8_node, format!("{}v8", address), format!("{}v8", address), 0f64),
+                Variable::new(&v9_node, format!("{}v9", address), format!("{}v9", address), 0f64),
+                Variable::new(&v10_node, format!("{}v10", address), format!("{}v10", address), 0f64),
+                Variable::new(&v11_node, format!("{}v11", address), format!("{}v11", address), 0f64),
+                Variable::new(&v12_node, format!("{}v12", address), format!("{}v12", address), 0f64),
             ],
             &sample_folder_id,
         );
@@ -84,40 +86,71 @@ fn add_variables(server: &mut Server, ns: u16, port: String) {
     {
         // Store a counter and a flag in a tuple
         //let data = Arc::new(Mutex::new((DeviceAnswer)));//
-        server.add_polling_action(300, move || {
+        server.add_polling_action(3000, move || {
             //let mut data = data.lock();
-            if let Ok(data) = get_device_message(1, port.clone(), Duration::from_millis(500), 3){
+            let mut address_space = address_space.write();
 
-                let mut address_space = address_space.write();
+            match get_device_message(address, port.clone(), Duration::from_millis(500), 3){
+                Ok(data) => {
 
-                let _ = address_space.set_variable_value(v1_node.clone(), data.message_items[0], 
-                    &data.message_time, &data.message_time);
-                let _ = address_space.set_variable_value(v2_node.clone(), data.message_items[1], 
-                    &data.message_time, &data.message_time);               
-                let _ = address_space.set_variable_value(v3_node.clone(), data.message_items[2], 
-                    &data.message_time, &data.message_time);
-                let _ = address_space.set_variable_value(v4_node.clone(), data.message_items[3], 
-                    &data.message_time, &data.message_time);    
-                let _ = address_space.set_variable_value(v5_node.clone(), data.message_items[4], 
-                    &data.message_time, &data.message_time);   
-                let _ = address_space.set_variable_value(v6_node.clone(), data.message_items[5], 
-                    &data.message_time, &data.message_time);   
-                let _ = address_space.set_variable_value(v7_node.clone(), data.message_items[6], 
-                    &data.message_time, &data.message_time);           
-                let _ = address_space.set_variable_value(v8_node.clone(), data.message_items[7], 
-                    &data.message_time, &data.message_time);
-                let _ = address_space.set_variable_value(v9_node.clone(), data.message_items[8], 
-                    &data.message_time, &data.message_time);               
-                let _ = address_space.set_variable_value(v10_node.clone(), data.message_items[9], 
-                    &data.message_time, &data.message_time);
-                let _ = address_space.set_variable_value(v11_node.clone(), data.message_items[10], 
-                    &data.message_time, &data.message_time);    
-                let _ = address_space.set_variable_value(v12_node.clone(), data.message_items[11], 
-                    &data.message_time, &data.message_time);                                                                                                                                                       
+                    let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(data.message_items[0],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v2_node.clone()).unwrap().set_value_direct(data.message_items[1],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v3_node.clone()).unwrap().set_value_direct(data.message_items[2],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v4_node.clone()).unwrap().set_value_direct(data.message_items[3],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v5_node.clone()).unwrap().set_value_direct(data.message_items[4],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v6_node.clone()).unwrap().set_value_direct(data.message_items[5],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v7_node.clone()).unwrap().set_value_direct(data.message_items[6],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v8_node.clone()).unwrap().set_value_direct(data.message_items[7],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v9_node.clone()).unwrap().set_value_direct(data.message_items[8],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v10_node.clone()).unwrap().set_value_direct(data.message_items[9],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v11_node.clone()).unwrap().set_value_direct(data.message_items[10],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+                    let _ = address_space.find_variable_mut(v12_node.clone()).unwrap().set_value_direct(data.message_items[11],
+                         opcua::types::StatusCode::Good, &data.message_time, &data.message_time);
+
+                },
+                Err(error) => {
+                    eprintln!("metran900: {}", error);
+                    let now = DateTime::now();
+
+                    let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v2_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v3_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v4_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v5_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v6_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v7_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v8_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v9_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v10_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v11_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                    let _ = address_space.find_variable_mut(v12_node.clone()).unwrap().set_value_direct(0,
+                         opcua::types::StatusCode::BadNoCommunication, &now, &now);
+                },
             }
-
-        });
-    }
+        } );
+    };
 }
 
 #[derive(Debug)]
