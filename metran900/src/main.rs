@@ -1,6 +1,8 @@
-use std::{error::Error, io::{self, Read, Write}, time::Duration};
+use std::{error::Error, io::{self, Read, Write}, time::Duration, env, fs::File};
 use crc16::*;
 use std::fmt;
+//use fork::daemon;
+use daemonize::Daemonize;
 
 use std::path::PathBuf;
 //use std::sync::Arc;
@@ -15,12 +17,36 @@ struct DeviceAnswer{
 
 
 fn main() {
-    let port = "/dev/ttyS3";
+let stdout = File::create("/tmp/daemon.out").unwrap();
+    let stderr = File::create("/tmp/daemon.err").unwrap();
+
+    let daemonize = Daemonize::new()
+        .pid_file("/tmp/test.pid") // Every method except `new` and `start`
+        .chown_pid_file(true) // is optional, see `Daemonize` documentation
+        .working_directory("/tmp") // for default behaviour.
+        .user("root")
+        .group("daemon") // Group name
+        .group(2) // or group id.
+        .umask(0o777) // Set umask, `0o027` by default.
+        .stdout(stdout) // Redirect stdout to `/tmp/daemon.out`.
+        .stderr(stderr) // Redirect stderr to `/tmp/daemon.err`.
+        .privileged_action(|| "Executed before drop privileges");
+
+    match daemonize.start() {
+        Ok(_) => println!("Success, daemonized"),
+        Err(e) => eprintln!("Error, {}", e),
+    }
+
+    start_ua_server();
+}
+
+fn start_ua_server(){
+   let port = "/dev/ttyS3";
 
    opcua::console_logging::init();
 
     // Create an OPC UA server with sample configuration and default node set
-    let mut server = Server::new(ServerConfig::load(&PathBuf::from("../server.conf")).unwrap());
+    let mut server = Server::new(ServerConfig::load(&PathBuf::from("/etc/metran900/server.conf")).unwrap());
 
     let ns = {
         let address_space = server.address_space();
@@ -31,9 +57,9 @@ fn main() {
     };
 
     // Add some variables of our own
-    add_variables(&mut server, ns, String::from(port), 1);
     add_variables(&mut server, ns, String::from(port), 2);
     add_variables(&mut server, ns, String::from(port), 3);
+    add_variables(&mut server, ns, String::from(port), 4);
 
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     server.run();
@@ -85,12 +111,10 @@ fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
     }
     {
         // Store a counter and a flag in a tuple
-        //let data = Arc::new(Mutex::new((DeviceAnswer)));//
         server.add_polling_action(3000, move || {
-            //let mut data = data.lock();
             let mut address_space = address_space.write();
 
-            match get_device_message(address, port.clone(), Duration::from_millis(500), 3){
+            match get_device_message(address, port.clone(), Duration::from_millis(800), 1){
                 Ok(data) => {
 
                     let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(data.message_items[0],
@@ -120,7 +144,7 @@ fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
 
                 },
                 Err(error) => {
-                    eprintln!("metran900: {}", error);
+                    eprintln!("metran900: {address} {}", error);
                     let now = DateTime::now();
 
                     let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(0,
@@ -226,7 +250,7 @@ fn get_format_message(buf: &[u8]) -> Result<DeviceAnswer, CRCError>{
         let formated_answer = DeviceAnswer{
             message_time: DateTime::now(),
             message_items: buf[5..29].chunks(2)
-                .map(|x| f32::from(u16::from_le_bytes([x[0], x[1]]))/32.0).collect(),
+                .map(|x| f32::from(i16::from_le_bytes([x[0], x[1]]))/32.0).collect(),
         };
         Ok(formated_answer)
 
