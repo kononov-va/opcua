@@ -1106,6 +1106,7 @@ dependencies = [
  "fork",
  "opcua",
  "serialport",
+ "tokio",
 ]
 
 [[package]]

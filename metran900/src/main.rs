@@ -1,4 +1,4 @@
-use std::{error::Error, io::{self, Read, Write}, time::Duration, env, fs::File};
+use std::{error::Error, io::{self, Read, Write}, time::Duration, env, fs::File, sync::Arc};
 use crc16::*;
 use std::fmt;
 //use fork::daemon;
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 //use std::sync::Arc;
 
 use opcua::server::prelude::*;
-//use opcua::sync::Mutex;
+use opcua::sync::RwLock;
 
 struct DeviceAnswer{
     message_time: DateTime,//<Local>,
@@ -17,14 +17,20 @@ struct DeviceAnswer{
 
 
 fn main() {
-let stdout = File::create("/tmp/daemon.out").unwrap();
+    let mut verb = false;
+
+    if env::args().find(|a| a == "-v").is_some() {
+        verb = true;
+    }
+
+    let stdout = File::create("/tmp/daemon.out").unwrap();
     let stderr = File::create("/tmp/daemon.err").unwrap();
 
     let daemonize = Daemonize::new()
         .pid_file("/tmp/test.pid") // Every method except `new` and `start`
         .chown_pid_file(true) // is optional, see `Daemonize` documentation
         .working_directory("/tmp") // for default behaviour.
-        .user("root")
+        .user("nobody")
         .group("daemon") // Group name
         .group(2) // or group id.
         .umask(0o777) // Set umask, `0o027` by default.
@@ -37,10 +43,10 @@ let stdout = File::create("/tmp/daemon.out").unwrap();
         Err(e) => eprintln!("Error, {}", e),
     }
 
-    start_ua_server();
+    start_ua_server(verb);
 }
 
-fn start_ua_server(){
+fn start_ua_server(verb: bool){
    let port = "/dev/ttyS3";
 
    opcua::console_logging::init();
@@ -57,15 +63,27 @@ fn start_ua_server(){
     };
 
     // Add some variables of our own
-    add_variables(&mut server, ns, String::from(port), 2);
-    add_variables(&mut server, ns, String::from(port), 3);
-    add_variables(&mut server, ns, String::from(port), 4);
+    add_variables(&mut server, ns, String::from(port), 2, verb);
+    add_variables(&mut server, ns, String::from(port), 3, verb);
+    add_variables(&mut server, ns, String::from(port), 4, verb);
 
     // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
-    server.run();
+    //server.run();
+            // OPCUA and Actix are sharing tokio runtime, so create it first
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+        // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
+    Server::run_server_on_runtime(
+        runtime,
+        Server::new_server_task(Arc::new(RwLock::new(server))),
+        true,
+    );
 }
 
-fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
+fn add_variables(server: &mut Server, ns: u16, port: String, address: u8, verb: bool) {
 
     let v1_node = NodeId::new(ns, format!("{}v1", address));
     let v2_node = NodeId::new(ns, format!("{}v2", address));
@@ -114,7 +132,7 @@ fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
         server.add_polling_action(3000, move || {
             let mut address_space = address_space.write();
 
-            match get_device_message(address, port.clone(), Duration::from_millis(800), 1){
+            match get_device_message(address, port.clone(), Duration::from_millis(250), 2){
                 Ok(data) => {
 
                     let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(data.message_items[0],
@@ -144,7 +162,9 @@ fn add_variables(server: &mut Server, ns: u16, port: String, address: u8) {
 
                 },
                 Err(error) => {
-                    eprintln!("metran900: {address} {}", error);
+                    if verb == true {
+                        eprintln!("metran900: {address} {}", error);
+                    }
                     let now = DateTime::now();
 
                     let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(0,
