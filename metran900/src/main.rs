@@ -11,16 +11,56 @@ use opcua::server::prelude::*;
 use opcua::sync::RwLock;
 
 struct DeviceAnswer{
-    message_time: DateTime,//<Local>,
+    message_time: DateTime,
     message_items: Vec<f32>,
 }
 
 
 fn main() {
     let mut verb = false;
+    let mut port = String::from("/dev/ttyS3");
+    let mut address: Vec<u8> = Vec::new();
+    let mut timeout: u64 = 250;
+    let mut retry: u8 = 2;
 
+//Выводить в лог ошибки связи
     if env::args().find(|a| a == "-v").is_some() {
         verb = true;
+    }
+
+//Уквзать порт в формате -p /devttySx (порт по умолчанию /dev/ttyS3)
+    if env::args().find(|a| a == "-p").is_some() {
+        port = match env::args().next() {
+            Some(p) => String::from(p),
+            None => port,
+        };
+    }
+
+//Уквзать адреса приборов в формате -а 1,x,y и т.д.
+    if env::args().find(|a| a == "-a").is_some() {
+        address = match env::args().next() {
+            Some(a) => {let mut av: Vec <u8> = Vec::new(); 
+                for ad in String::from(a).split_terminator(",") {
+                    av.push(ad.parse::<u8>().expect("Wrong address format"));
+                }; av},
+            None => address,
+        };
+    }
+
+ //Уквзать тфймаут в формате -t значение в миллисекундах
+    if env::args().find(|a| a == "-t").is_some() {
+        timeout = match env::args().next() {
+            Some(p) => String::from(p).parse().expect("Wrong timeout"),
+            None => timeout,
+        };
+    }
+
+ //Уквзать количество повторов при опросе в формате -r значение от 0 до 255
+    if env::args().find(|a| a == "-r").is_some() {
+        retry = match env::args().next() {
+            Some(r) => String::from(r).parse().expect("Wrong retry value"),
+            None => retry,
+        };
     }
 
     let stdout = File::create("/tmp/daemon.out").unwrap();
@@ -43,13 +83,11 @@ fn main() {
         Err(e) => eprintln!("Error, {}", e),
     }
 
-    start_ua_server(verb);
+    start_ua_server(verb, port, address, timeout, retry);
 }
 
-fn start_ua_server(verb: bool){
-   let port = "/dev/ttyS3";
-
-   opcua::console_logging::init();
+fn start_ua_server(verb: bool, port: String, address: Vec<u8>, timeout_s: u64, retry: u8){
+    opcua::console_logging::init();
 
     // Create an OPC UA server with sample configuration and default node set
     let mut server = Server::new(ServerConfig::load(&PathBuf::from("/etc/metran900/server.conf")).unwrap());
@@ -62,20 +100,18 @@ fn start_ua_server(verb: bool){
             .unwrap()
     };
 
-    // Add some variables of our own
-    add_variables(&mut server, ns, String::from(port), 2, verb);
-    add_variables(&mut server, ns, String::from(port), 3, verb);
-    add_variables(&mut server, ns, String::from(port), 4, verb);
-
-    // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
-    //server.run();
-            // OPCUA and Actix are sharing tokio runtime, so create it first
+    // Добавляем приборы в пространство имен сервера
+    for a in address {
+        add_variables(&mut server, ns, port.clone(), a, verb, timeout_s, retry);
+    }
+    
+    // OPCUA and Actix are sharing tokio runtime, so create it first
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap();
 
-        // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
+    // Run the server. This does not ordinarily exit so you must Ctrl+C to terminate
     Server::run_server_on_runtime(
         runtime,
         Server::new_server_task(Arc::new(RwLock::new(server))),
@@ -83,7 +119,7 @@ fn start_ua_server(verb: bool){
     );
 }
 
-fn add_variables(server: &mut Server, ns: u16, port: String, address: u8, verb: bool) {
+fn add_variables(server: &mut Server, ns: u16, port: String, address: u8, verb: bool, timeout_s: u64, retry: u8) {
 
     let v1_node = NodeId::new(ns, format!("{}v1", address));
     let v2_node = NodeId::new(ns, format!("{}v2", address));
@@ -132,7 +168,7 @@ fn add_variables(server: &mut Server, ns: u16, port: String, address: u8, verb: 
         server.add_polling_action(3000, move || {
             let mut address_space = address_space.write();
 
-            match get_device_message(address, port.clone(), Duration::from_millis(250), 2){
+            match get_device_message(address, port.clone(), Duration::from_millis(timeout_s), retry){
                 Ok(data) => {
 
                     let _ = address_space.find_variable_mut(v1_node.clone()).unwrap().set_value_direct(data.message_items[0],
@@ -273,7 +309,6 @@ fn get_format_message(buf: &[u8]) -> Result<DeviceAnswer, CRCError>{
                 .map(|x| f32::from(i16::from_le_bytes([x[0], x[1]]))/32.0).collect(),
         };
         Ok(formated_answer)
-
     }
     else {
         Err(CRCError {  })
