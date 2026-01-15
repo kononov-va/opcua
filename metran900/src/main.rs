@@ -29,38 +29,31 @@ fn main() {
     }
 
 //Уквзать порт в формате -p /devttySx (порт по умолчанию /dev/ttyS3)
-    if env::args().find(|a| a == "-p").is_some() {
-        port = match env::args().next() {
-            Some(p) => String::from(p),
-            None => port,
-        };
+    match env::args().position(|a| a == "-p") {
+        Some(p) => {port = env::args().collect::<Vec<String>>()[p+1].clone(); },
+        None => (),
     }
 
 //Уквзать адреса приборов в формате -а 1,x,y и т.д.
-    if env::args().find(|a| a == "-a").is_some() {
-        address = match env::args().next() {
-            Some(a) => {let mut av: Vec <u8> = Vec::new(); 
-                for ad in String::from(a).split_terminator(",") {
-                    av.push(ad.parse::<u8>().expect("Wrong address format"));
-                }; av},
-            None => address,
-        };
-    }
-
+    match env::args().position(|a| a == "-a") {
+        Some(a) => {//let mut av: Vec <u8> = Vec::new(); 
+                let str_addr= env::args().collect::<Vec<String>>()[a+1].clone(); 
+                for ad in str_addr.split_terminator(",") {
+                    address.push(ad.parse::<u8>().expect("Wrong address format"));
+                }; },
+        None => (),
+    };
+  
  //Уквзать тфймаут в формате -t значение в миллисекундах
-    if env::args().find(|a| a == "-t").is_some() {
-        timeout = match env::args().next() {
-            Some(p) => String::from(p).parse().expect("Wrong timeout"),
-            None => timeout,
-        };
+    match env::args().position(|a| a == "-t") {
+        Some(p) => {timeout = env::args().collect::<Vec<String>>()[p+1].parse().expect("Wrong timeout"); },
+        None => (),
     }
 
  //Уквзать количество повторов при опросе в формате -r значение от 0 до 255
-    if env::args().find(|a| a == "-r").is_some() {
-        retry = match env::args().next() {
-            Some(r) => String::from(r).parse().expect("Wrong retry value"),
-            None => retry,
-        };
+    match env::args().position(|a| a == "-r") {
+        Some(p) => {retry = env::args().collect::<Vec<String>>()[p+1].parse().expect("Wrong retry"); },
+        None => (),
     }
 
     let stdout = File::create("/tmp/daemon.out").unwrap();
@@ -79,7 +72,7 @@ fn main() {
         .privileged_action(|| "Executed before drop privileges");
 
     match daemonize.start() {
-        Ok(_) => println!("Success, daemonized"),
+        Ok(_) => println!("Success, daemonized."),
         Err(e) => eprintln!("Error, {}", e),
     }
 
@@ -103,6 +96,7 @@ fn start_ua_server(verb: bool, port: String, address: Vec<u8>, timeout_s: u64, r
     // Добавляем приборы в пространство имен сервера
     for a in address {
         add_variables(&mut server, ns, port.clone(), a, verb, timeout_s, retry);
+        println!("add to namespace device {a}");
     }
     
     // OPCUA and Actix are sharing tokio runtime, so create it first

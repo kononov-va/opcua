@@ -262,7 +262,7 @@ impl MonitoredItem {
                 let elapsed = now
                     .signed_duration_since(self.last_sample_time)
                     .to_std()
-                    .unwrap();
+                    .unwrap_or_else(|_| super::duration_from_ms(0.0));
                 elapsed >= sampling_interval
             };
 
