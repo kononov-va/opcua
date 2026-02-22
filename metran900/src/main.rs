@@ -22,58 +22,53 @@ fn main() {
     let mut address: Vec<u8> = Vec::new();
     let mut timeout: u64 = 250;
     let mut retry: u8 = 2;
+    let mut sysd_f: bool = false;
 
-//Выводить в лог ошибки связи
-    if env::args().find(|a| a == "-v").is_some() {
-        verb = true;
+    let mut args = env::args().collect::<Vec<String>>().into_iter();
+    loop {
+        match args.next() {
+            Some(arg) => {
+                if arg == "-v" { //Выводить в лог ошибки связи
+                    verb = true
+                } else if arg == "-p" { //Уквзать порт в формате -p /devttySx (порт по умолчанию /dev/ttyS3)
+                    port = args.next().expect("Wrong port format");
+                } else if arg == "-a" {//Уквзать адреса приборов в формате -а 1,x,y и т.д.
+                    let str_addr= args.next().expect("Wrong address format"); 
+                    for ad in str_addr.split_terminator(",") {
+                        address.push(ad.parse::<u8>().expect("Wrong address format"));
+                    };
+                } else if arg == "-t" {//Уквзать тфймаут в формате -t значение в миллисекундах
+                    timeout = args.next().expect("Wrong timeout").parse().expect("Wrong timeout");
+                } else if arg == "-r" {//Уквзать количество повторов при опросе в формате -r значение от 0 до 255
+                    retry = args.next().expect("Wrong retry").parse().expect("Wrong retry");
+                } else if arg == "-sysd" {//Не использовать старый механизм запуска фонового процесса
+                    sysd_f = true;
+                }
+            },
+            None => break,
+        }
     }
 
-//Уквзать порт в формате -p /devttySx (порт по умолчанию /dev/ttyS3)
-    match env::args().position(|a| a == "-p") {
-        Some(p) => {port = env::args().collect::<Vec<String>>()[p+1].clone(); },
-        None => (),
-    }
+    if sysd_f == false {
+       let stdout = File::create("/tmp/daemon.out").unwrap();
+       let stderr = File::create("/tmp/daemon.err").unwrap();
 
-//Уквзать адреса приборов в формате -а 1,x,y и т.д.
-    match env::args().position(|a| a == "-a") {
-        Some(a) => {//let mut av: Vec <u8> = Vec::new(); 
-                let str_addr= env::args().collect::<Vec<String>>()[a+1].clone(); 
-                for ad in str_addr.split_terminator(",") {
-                    address.push(ad.parse::<u8>().expect("Wrong address format"));
-                }; },
-        None => (),
-    };
-  
- //Уквзать тфймаут в формате -t значение в миллисекундах
-    match env::args().position(|a| a == "-t") {
-        Some(p) => {timeout = env::args().collect::<Vec<String>>()[p+1].parse().expect("Wrong timeout"); },
-        None => (),
-    }
+        let daemonize = Daemonize::new()
+            .pid_file("/tmp/test.pid") // Every method except `new` and `start`
+            .chown_pid_file(true) // is optional, see `Daemonize` documentation
+            .working_directory("/tmp") // for default behaviour.
+            .user("nobody")
+            .group("daemon") // Group name
+            .group(2) // or group id.
+            .umask(0o777) // Set umask, `0o027` by default.
+            .stdout(stdout) // Redirect stdout to `/tmp/daemon.out`.
+            .stderr(stderr) // Redirect stderr to `/tmp/daemon.err`.
+            .privileged_action(|| "Executed before drop privileges");
 
- //Уквзать количество повторов при опросе в формате -r значение от 0 до 255
-    match env::args().position(|a| a == "-r") {
-        Some(p) => {retry = env::args().collect::<Vec<String>>()[p+1].parse().expect("Wrong retry"); },
-        None => (),
-    }
-
-    let stdout = File::create("/tmp/daemon.out").unwrap();
-    let stderr = File::create("/tmp/daemon.err").unwrap();
-
-    let daemonize = Daemonize::new()
-        .pid_file("/tmp/test.pid") // Every method except `new` and `start`
-        .chown_pid_file(true) // is optional, see `Daemonize` documentation
-        .working_directory("/tmp") // for default behaviour.
-        .user("nobody")
-        .group("daemon") // Group name
-        .group(2) // or group id.
-        .umask(0o777) // Set umask, `0o027` by default.
-        .stdout(stdout) // Redirect stdout to `/tmp/daemon.out`.
-        .stderr(stderr) // Redirect stderr to `/tmp/daemon.err`.
-        .privileged_action(|| "Executed before drop privileges");
-
-    match daemonize.start() {
-        Ok(_) => println!("Success, daemonized."),
-        Err(e) => eprintln!("Error, {}", e),
+        match daemonize.start() {
+            Ok(_) => println!("Success, daemonized."),
+            Err(e) => eprintln!("Error, {}", e),
+        }
     }
 
     start_ua_server(verb, port, address, timeout, retry);
@@ -278,8 +273,8 @@ fn ask_device(address: u8, serial_port: String, buf: &mut [u8], timeout: Duratio
         Err(e) => return Err(Into::into(e)), 
     }
 
-    match port.read(buf) {
-        Ok(size) => Ok(size),
+    match port.read_exact(buf) {
+        Ok(_) => Ok(33),
         Err(e) => return Err(Into::into(e)),
     }
 }
